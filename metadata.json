@@ -1,0 +1,5 @@
+{
+  "name": "NASA Image of the Day",
+  "description": "A simple application to display the NASA Astronomy Picture of the Day.",
+  "requestFramePermissions": []
+}

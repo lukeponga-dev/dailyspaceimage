@@ -108,13 +108,22 @@ export default function NasaApod() {
                   Failed to load image.
                 </div>
               ) : (
-                <img 
-                  src={data.url} 
-                  alt={data.title} 
-                  className="w-full rounded-lg shadow-lg" 
-                  referrerPolicy="no-referrer" 
-                  onError={() => setImageError(true)}
-                />
+                <>
+                  <img 
+                    src={data.url} 
+                    alt={data.title} 
+                    className="w-full rounded-lg shadow-lg" 
+                    referrerPolicy="no-referrer" 
+                    onError={() => setImageError(true)}
+                  />
+                  <a
+                    href={data.url}
+                    download={`${data.title}.jpg`}
+                    className="mt-4 inline-block bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700"
+                  >
+                    Download Image
+                  </a>
+                </>
               )
             ) : (
               <iframe src={data.url} title={data.title} className="w-full h-96 rounded-lg shadow-lg" />

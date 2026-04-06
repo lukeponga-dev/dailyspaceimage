@@ -125,6 +125,8 @@ export default function NasaApod() {
                   </a>
                 </>
               )
+            ) : data.media_type === 'video' ? (
+              <video src={data.url} controls className="w-full h-96 rounded-lg shadow-lg" />
             ) : (
               <iframe src={data.url} title={data.title} className="w-full h-96 rounded-lg shadow-lg" />
             )}

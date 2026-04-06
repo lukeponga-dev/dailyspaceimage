@@ -9,7 +9,7 @@ interface ApodData {
   thumbnail_url?: string;
 }
 
-const NASA_API_KEY = "DQyanRGtyfc3NAXvp1c69yTUBiEUt32RISDWcajH";
+const NASA_API_KEY = process.env.NASA_API_KEY || "DQyanRGtyfc3NAXvp1c69yTUBiEUt32RISDWcajH";
 
 const getLocalDate = () => {
   const now = new Date();
@@ -31,10 +31,14 @@ export default function NasaApod() {
     setError(null);
     try {
       const res = await fetch(`https://api.nasa.gov/planetary/apod?api_key=${NASA_API_KEY}&date=${date}`);
-      if (!res.ok) throw new Error('Failed to fetch NASA APOD');
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(`Failed to fetch NASA APOD: ${res.status} ${res.statusText} - ${errorText}`);
+      }
       const data = await res.json();
       setData(data);
     } catch (err: any) {
+      console.error('Fetch error:', err);
       setError(err.message);
     } finally {
       setLoading(false);
@@ -48,11 +52,14 @@ export default function NasaApod() {
     const startDate = startDateObj.toISOString().split('T')[0];
     try {
       const res = await fetch(`https://api.nasa.gov/planetary/apod?api_key=${NASA_API_KEY}&start_date=${startDate}&end_date=${endDate}`);
-      if (!res.ok) throw new Error('Failed to fetch gallery');
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(`Failed to fetch gallery: ${res.status} ${res.statusText} - ${errorText}`);
+      }
       const data = await res.json();
       setGallery(data.reverse());
     } catch (err: any) {
-      console.error(err);
+      console.error('Gallery fetch error:', err);
     }
   }, []);
 

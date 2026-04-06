@@ -21,6 +21,11 @@ const getLocalDate = () => {
   return `${year}-${month}-${day}`;
 };
 
+const formatDate = (dateString: string) => {
+  const [year, month, day] = dateString.split('-');
+  return `${month}/${day}/${year}`;
+};
+
 export default function NasaApod() {
   const [data, setData] = useState<ApodData | null>(null);
   const [gallery, setGallery] = useState<ApodData[]>([]);
@@ -117,7 +122,7 @@ export default function NasaApod() {
           </div>
           <div className="md:col-span-1">
             <h2 className="text-2xl font-bold mb-2">{data.title}</h2>
-            <p className="text-gray-600 mb-4">{data.date}</p>
+            <p className="text-gray-600 mb-4">{formatDate(data.date)}</p>
             <p className="text-lg leading-relaxed">{data.explanation}</p>
           </div>
         </div>
@@ -137,7 +142,7 @@ export default function NasaApod() {
               }}
             />
             <p className="text-sm font-medium mt-1 truncate">{item.title}</p>
-            <p className="text-xs text-gray-500">{item.date}</p>
+            <p className="text-xs text-gray-500">{formatDate(item.date)}</p>
           </div>
         ))}
       </div>

@@ -13,9 +13,11 @@ const NASA_API_KEY = process.env.NASA_API_KEY || "DQyanRGtyfc3NAXvp1c69yTUBiEUt3
 
 const getLocalDate = () => {
   const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
+  // Convert to US Eastern Time (UTC-5) to better align with NASA API availability
+  const estDate = new Date(now.toLocaleString("en-US", {timeZone: "America/New_York"}));
+  const year = estDate.getFullYear();
+  const month = String(estDate.getMonth() + 1).padStart(2, '0');
+  const day = String(estDate.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
 };
 
@@ -24,11 +26,13 @@ export default function NasaApod() {
   const [gallery, setGallery] = useState<ApodData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [imageError, setImageError] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string>(getLocalDate());
 
   const fetchApod = useCallback(async (date: string) => {
     setLoading(true);
     setError(null);
+    setImageError(false);
     try {
       const res = await fetch(`https://api.nasa.gov/planetary/apod?api_key=${NASA_API_KEY}&date=${date}`);
       if (!res.ok) {
@@ -46,10 +50,14 @@ export default function NasaApod() {
   }, []);
 
   const fetchGallery = useCallback(async () => {
-    const endDate = getLocalDate();
-    const startDateObj = new Date();
+    const now = new Date();
+    const estDate = new Date(now.toLocaleString("en-US", {timeZone: "America/New_York"}));
+    const endDate = `${estDate.getFullYear()}-${String(estDate.getMonth() + 1).padStart(2, '0')}-${String(estDate.getDate()).padStart(2, '0')}`;
+    
+    const startDateObj = new Date(estDate);
     startDateObj.setDate(startDateObj.getDate() - 10);
-    const startDate = startDateObj.toISOString().split('T')[0];
+    const startDate = `${startDateObj.getFullYear()}-${String(startDateObj.getMonth() + 1).padStart(2, '0')}-${String(startDateObj.getDate()).padStart(2, '0')}`;
+    
     try {
       const res = await fetch(`https://api.nasa.gov/planetary/apod?api_key=${NASA_API_KEY}&start_date=${startDate}&end_date=${endDate}`);
       if (!res.ok) {
@@ -90,7 +98,19 @@ export default function NasaApod() {
         <div className="grid md:grid-cols-3 gap-8 mb-12">
           <div className="md:col-span-2">
             {data.media_type === 'image' ? (
-              <img src={data.url} alt={data.title} className="w-full rounded-lg shadow-lg" referrerPolicy="no-referrer" />
+              imageError ? (
+                <div className="w-full h-96 bg-gray-200 flex items-center justify-center rounded-lg shadow-lg text-gray-500">
+                  Failed to load image.
+                </div>
+              ) : (
+                <img 
+                  src={data.url} 
+                  alt={data.title} 
+                  className="w-full rounded-lg shadow-lg" 
+                  referrerPolicy="no-referrer" 
+                  onError={() => setImageError(true)}
+                />
+              )
             ) : (
               <iframe src={data.url} title={data.title} className="w-full h-96 rounded-lg shadow-lg" />
             )}
@@ -107,7 +127,15 @@ export default function NasaApod() {
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         {gallery.map((item) => (
           <div key={item.date} className="cursor-pointer" onClick={() => setSelectedDate(item.date)}>
-            <img src={item.url} alt={item.title} className="w-full h-32 object-cover rounded shadow" referrerPolicy="no-referrer" />
+            <img 
+              src={item.url} 
+              alt={item.title} 
+              className="w-full h-32 object-cover rounded shadow" 
+              referrerPolicy="no-referrer" 
+              onError={(e) => {
+                (e.target as HTMLImageElement).src = 'https://via.placeholder.com/150?text=Image+Failed';
+              }}
+            />
             <p className="text-sm font-medium mt-1 truncate">{item.title}</p>
             <p className="text-xs text-gray-500">{item.date}</p>
           </div>

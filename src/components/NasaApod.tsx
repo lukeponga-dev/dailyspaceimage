@@ -13,17 +13,15 @@ const NASA_API_KEY = process.env.NASA_API_KEY || "DQyanRGtyfc3NAXvp1c69yTUBiEUt3
 
 const getLocalDate = () => {
   const now = new Date();
-  // Convert to US Eastern Time (UTC-5) to better align with NASA API availability
-  const estDate = new Date(now.toLocaleString("en-US", {timeZone: "America/New_York"}));
-  const year = estDate.getFullYear();
-  const month = String(estDate.getMonth() + 1).padStart(2, '0');
-  const day = String(estDate.getDate()).padStart(2, '0');
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
 };
 
 const formatDate = (dateString: string) => {
   const [year, month, day] = dateString.split('-');
-  return `${month}/${day}/${year}`;
+  return `${day}/${month}/${year}`;
 };
 
 export default function NasaApod() {
@@ -56,10 +54,9 @@ export default function NasaApod() {
 
   const fetchGallery = useCallback(async () => {
     const now = new Date();
-    const estDate = new Date(now.toLocaleString("en-US", {timeZone: "America/New_York"}));
-    const endDate = `${estDate.getFullYear()}-${String(estDate.getMonth() + 1).padStart(2, '0')}-${String(estDate.getDate()).padStart(2, '0')}`;
+    const endDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     
-    const startDateObj = new Date(estDate);
+    const startDateObj = new Date(now);
     startDateObj.setDate(startDateObj.getDate() - 10);
     const startDate = `${startDateObj.getFullYear()}-${String(startDateObj.getMonth() + 1).padStart(2, '0')}-${String(startDateObj.getDate()).padStart(2, '0')}`;
     
@@ -126,9 +123,15 @@ export default function NasaApod() {
                 </>
               )
             ) : data.media_type === 'video' && !data.url.includes('youtube') ? (
-              <video src={data.url} controls className="w-full h-96 rounded-lg shadow-lg" />
+              <video src={data.url} controls preload="auto" className="w-full h-96 rounded-lg shadow-lg" />
             ) : (
-              <iframe src={data.url} title={data.title} className="w-full h-96 rounded-lg shadow-lg" />
+              <iframe 
+                src={data.url.includes('youtube.com/watch?v=') ? data.url.replace('watch?v=', 'embed/') : data.url} 
+                title={data.title} 
+                className="w-full h-96 rounded-lg shadow-lg" 
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+              />
             )}
           </div>
           <div className="md:col-span-1">

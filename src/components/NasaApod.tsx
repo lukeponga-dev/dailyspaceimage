@@ -30,11 +30,30 @@ export default function NasaApod() {
   const [gallery, setGallery] = useState<ApodData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [galleryError, setGalleryError] = useState<string | null>(null);
   const [imageError, setImageError] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string>(getLocalDate());
   const [selectedImage, setSelectedImage] = useState<ApodData | null>(null);
 
   const cache = useRef<Map<string, ApodData>>(new Map());
+
+  const fetchWithRetry = async (url: string, retries = 3, timeout = 10000): Promise<Response> => {
+    for (let i = 0; i < retries; i++) {
+      try {
+        const controller = new AbortController();
+        const id = setTimeout(() => controller.abort(), timeout);
+        const response = await fetch(url, { signal: controller.signal });
+        clearTimeout(id);
+        if (response.ok) return response;
+        throw new Error(`HTTP error! status: ${response.status}`);
+      } catch (err) {
+        if (i === retries - 1) throw err;
+        // Wait a bit before retrying
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    }
+    throw new Error('Failed after retries');
+  };
 
   const fetchApod = useCallback(async (date: string) => {
     if (cache.current.has(date)) {
@@ -46,11 +65,7 @@ export default function NasaApod() {
     setError(null);
     setImageError(false);
     try {
-      const res = await fetch(`https://api.nasa.gov/planetary/apod?api_key=${NASA_API_KEY}&date=${date}`);
-      if (!res.ok) {
-        const errorText = await res.text();
-        throw new Error(`Failed to fetch NASA APOD: ${res.status} ${res.statusText} - ${errorText}`);
-      }
+      const res = await fetchWithRetry(`https://api.nasa.gov/planetary/apod?api_key=${NASA_API_KEY}&date=${date}`);
       const data = await res.json();
       cache.current.set(date, data);
       setData(data);
@@ -70,16 +85,14 @@ export default function NasaApod() {
     startDateObj.setDate(startDateObj.getDate() - 10);
     const startDate = `${startDateObj.getFullYear()}-${String(startDateObj.getMonth() + 1).padStart(2, '0')}-${String(startDateObj.getDate()).padStart(2, '0')}`;
     
+    setGalleryError(null);
     try {
-      const res = await fetch(`https://api.nasa.gov/planetary/apod?api_key=${NASA_API_KEY}&start_date=${startDate}&end_date=${endDate}`);
-      if (!res.ok) {
-        const errorText = await res.text();
-        throw new Error(`Failed to fetch gallery: ${res.status} ${res.statusText} - ${errorText}`);
-      }
+      const res = await fetchWithRetry(`https://api.nasa.gov/planetary/apod?api_key=${NASA_API_KEY}&start_date=${startDate}&end_date=${endDate}`);
       const data = await res.json();
       setGallery(data.reverse());
     } catch (err: any) {
       console.error('Gallery fetch error:', err);
+      setGalleryError('Failed to load recent images. Please try again later.');
     }
   }, []);
 
@@ -125,6 +138,7 @@ export default function NasaApod() {
         </div>
       )}
       {error && <div className="text-center p-10 text-red-500">Error: {error}</div>}
+      {galleryError && <div className="text-center p-4 text-red-500">{galleryError}</div>}
       
       {data && !loading && !error && (
         <div className="grid md:grid-cols-3 gap-8 mb-12">

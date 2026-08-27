@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { AlertCircle, X, Share2, Download } from 'lucide-react';
+import { AlertCircle, Share2, Download, ChevronLeft, ChevronRight, Shuffle, Calendar, Star, Sparkles } from 'lucide-react';
 
 interface ApodData {
   title: string;
@@ -7,7 +7,15 @@ interface ApodData {
   explanation: string;
   date: string;
   media_type: string;
-  thumbnail_url?: string;
+  copyright?: string;
+  hdurl?: string;
+}
+
+interface NasaApodProps {
+  selectedDate: string;
+  onDateChange: (date: string) => void;
+  onToggleFavorite: (item: ApodData) => void;
+  isFavorite: (date: string) => boolean;
 }
 
 const NASA_API_KEY = process.env.NASA_API_KEY || "DQyanRGtyfc3NAXvp1c69yTUBiEUt32RISDWcajH";
@@ -21,19 +29,39 @@ const getLocalDate = () => {
 };
 
 const formatDate = (dateString: string) => {
+  if (!dateString) return '';
   const [year, month, day] = dateString.split('-');
   return `${day}/${month}/${year}`;
 };
 
-export default function NasaApod() {
+// Date math helpers
+const addDays = (dateStr: string, days: number) => {
+  const date = new Date(dateStr + 'T00:00:00');
+  date.setDate(date.getDate() + days);
+  
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const getRandomDate = () => {
+  const start = new Date('1995-06-16T00:00:00').getTime();
+  const end = new Date(getLocalDate() + 'T00:00:00').getTime();
+  const randomTime = start + Math.random() * (end - start);
+  const date = new Date(randomTime);
+  
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+export default function NasaApod({ selectedDate, onDateChange, onToggleFavorite, isFavorite }: NasaApodProps) {
   const [data, setData] = useState<ApodData | null>(null);
-  const [gallery, setGallery] = useState<ApodData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [galleryError, setGalleryError] = useState<string | null>(null);
   const [imageError, setImageError] = useState(false);
-  const [selectedDate, setSelectedDate] = useState<string>(getLocalDate());
-  const [selectedImage, setSelectedImage] = useState<ApodData | null>(null);
 
   const cache = useRef<Map<string, ApodData>>(new Map());
 
@@ -48,7 +76,6 @@ export default function NasaApod() {
         throw new Error(`HTTP error! status: ${response.status}`);
       } catch (err) {
         if (i === retries - 1) throw err;
-        // Wait a bit before retrying
         await new Promise(resolve => setTimeout(resolve, 1000));
       }
     }
@@ -66,183 +93,269 @@ export default function NasaApod() {
     setImageError(false);
     try {
       const res = await fetchWithRetry(`https://api.nasa.gov/planetary/apod?api_key=${NASA_API_KEY}&date=${date}`);
-      const data = await res.json();
-      cache.current.set(date, data);
-      setData(data);
+      const responseData = await res.json();
+      
+      if (responseData.code && responseData.code !== 200) {
+        throw new Error(responseData.msg || 'Error fetching astronomy picture of the day');
+      }
+
+      cache.current.set(date, responseData);
+      setData(responseData);
     } catch (err: any) {
       console.error('Fetch error:', err);
-      setError(err.message);
+      setError(err.message || 'Failed to connect to NASA servers');
     } finally {
       setLoading(false);
     }
   }, []);
 
-  const fetchGallery = useCallback(async () => {
-    const now = new Date();
-    const endDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-    
-    const startDateObj = new Date(now);
-    startDateObj.setDate(startDateObj.getDate() - 10);
-    const startDate = `${startDateObj.getFullYear()}-${String(startDateObj.getMonth() + 1).padStart(2, '0')}-${String(startDateObj.getDate()).padStart(2, '0')}`;
-    
-    setGalleryError(null);
-    try {
-      const res = await fetchWithRetry(`https://api.nasa.gov/planetary/apod?api_key=${NASA_API_KEY}&start_date=${startDate}&end_date=${endDate}`);
-      const data = await res.json();
-      setGallery(data.reverse());
-    } catch (err: any) {
-      console.error('Gallery fetch error:', err);
-      setGalleryError('Failed to load recent images. Please try again later.');
-    }
-  }, []);
-
   useEffect(() => {
     fetchApod(selectedDate);
-    fetchGallery();
-  }, [fetchApod, fetchGallery, selectedDate]);
+  }, [fetchApod, selectedDate]);
 
   const handleShare = async (item: ApodData) => {
     try {
-      await navigator.share({
-        title: item.title,
-        url: item.url,
-      });
+      if (navigator.share) {
+        await navigator.share({
+          title: item.title,
+          text: item.explanation.substring(0, 100) + '...',
+          url: item.url,
+        });
+      } else {
+        // Fallback copy to clipboard
+        await navigator.clipboard.writeText(item.url);
+        alert('Cosmic link copied to clipboard!');
+      }
     } catch (err) {
       console.error('Share failed:', err);
     }
   };
 
+  const todayStr = getLocalDate();
+  const minDate = "1995-06-16";
+
+  const handlePrevDate = () => {
+    if (selectedDate > minDate) {
+      onDateChange(addDays(selectedDate, -1));
+    }
+  };
+
+  const handleNextDate = () => {
+    if (selectedDate < todayStr) {
+      onDateChange(addDays(selectedDate, 1));
+    }
+  };
+
+  const handleRandomDate = () => {
+    onDateChange(getRandomDate());
+  };
+
+  const handleTodayDate = () => {
+    onDateChange(todayStr);
+  };
+
   return (
-    <div className="max-w-6xl mx-auto p-6">
-      <h1 className="text-4xl font-bold mb-8 text-center">NASA Astronomy Picture of the Day</h1>
-      
-      <div className="mb-8 flex justify-center items-center gap-4">
-        <label htmlFor="date" className="font-medium">Select Date:</label>
-        <input
-          type="date"
-          id="date"
-          value={selectedDate}
-          onChange={(e) => setSelectedDate(e.target.value)}
-          className="border p-2 rounded"
-        />
+    <div className="max-w-4xl mx-auto space-y-8 animate-fade-in pb-12">
+      {/* Title / Slogan */}
+      <div className="text-center space-y-2">
+        <div className="inline-flex items-center gap-1.5 bg-blue-500/10 text-blue-400 px-3 py-1 rounded-full text-xs font-semibold tracking-wider uppercase border border-blue-500/15">
+          <Sparkles size={12} />
+          NASA Astronomy Picture
+        </div>
+        <h1 className="text-3xl md:text-5xl font-extrabold tracking-tight bg-gradient-to-r from-blue-400 via-indigo-200 to-purple-400 bg-clip-text text-transparent">
+          Archival Cosmos Finder
+        </h1>
+        <p className="text-slate-400 text-sm md:text-base max-w-lg mx-auto">
+          Explore the historical vaults of the cosmos, date by date.
+        </p>
       </div>
 
+      {/* Date Navigation Hub */}
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-slate-900/60 p-4 border border-slate-800/80 rounded-2xl backdrop-blur-md">
+        {/* Date Selector and Changers */}
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <button
+            onClick={handlePrevDate}
+            disabled={selectedDate <= minDate}
+            className="p-2.5 bg-slate-950/80 border border-slate-800 hover:border-slate-700 hover:text-white rounded-xl text-slate-400 disabled:opacity-30 disabled:pointer-events-none transition flex-shrink-0"
+            title="Yesterday"
+          >
+            <ChevronLeft size={20} />
+          </button>
+          
+          <div className="relative flex-grow sm:flex-grow-0">
+            <input
+              type="date"
+              id="date"
+              min={minDate}
+              max={todayStr}
+              value={selectedDate}
+              onChange={(e) => onDateChange(e.target.value)}
+              className="w-full sm:w-48 bg-slate-955/90 text-white border border-slate-800 p-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/40 text-center font-mono text-sm cursor-pointer"
+            />
+          </div>
+
+          <button
+            onClick={handleNextDate}
+            disabled={selectedDate >= todayStr}
+            className="p-2.5 bg-slate-950/80 border border-slate-800 hover:border-slate-700 hover:text-white rounded-xl text-slate-400 disabled:opacity-30 disabled:pointer-events-none transition flex-shrink-0"
+            title="Tomorrow"
+          >
+            <ChevronRight size={20} />
+          </button>
+        </div>
+
+        {/* Discovery shortcuts */}
+        <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+          <button
+            onClick={handleRandomDate}
+            className="flex-grow sm:flex-grow-0 inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-955/80 hover:bg-slate-800/65 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white rounded-xl text-xs font-semibold uppercase tracking-wider transition"
+            title="Random archive date"
+          >
+            <Shuffle size={14} />
+            Random Date
+          </button>
+          <button
+            onClick={handleTodayDate}
+            disabled={selectedDate === todayStr}
+            className="flex-grow sm:flex-grow-0 inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white border border-blue-500/30 rounded-xl text-xs font-semibold uppercase tracking-wider disabled:opacity-35 disabled:pointer-events-none transition"
+            title="Jump to today"
+          >
+            <Calendar size={14} />
+            Today
+          </button>
+        </div>
+      </div>
+
+      {/* Loading State */}
       {loading && (
-        <div className="grid md:grid-cols-3 gap-8 mb-12 animate-pulse">
-          <div className="md:col-span-2 w-full h-96 bg-gray-200 rounded-lg shadow-lg"></div>
-          <div className="md:col-span-1 space-y-4">
-            <div className="h-8 bg-gray-200 rounded w-3/4"></div>
-            <div className="h-4 bg-gray-200 rounded w-1/4"></div>
-            <div className="h-20 bg-gray-200 rounded w-full"></div>
+        <div className="bg-slate-900/20 border border-slate-800 rounded-2xl p-6 space-y-6 animate-pulse">
+          <div className="w-full aspect-video md:h-[480px] bg-slate-800 rounded-xl"></div>
+          <div className="space-y-4">
+            <div className="h-8 bg-slate-800 rounded w-3/4"></div>
+            <div className="h-4 bg-slate-800 rounded w-1/4"></div>
+            <div className="space-y-2">
+              <div className="h-4 bg-slate-800 rounded w-full"></div>
+              <div className="h-4 bg-slate-800 rounded w-full"></div>
+              <div className="h-4 bg-slate-800 rounded w-5/6"></div>
+            </div>
           </div>
         </div>
       )}
-      {error && <div className="text-center p-10 text-red-500">Error: {error}</div>}
-      {galleryError && <div className="text-center p-4 text-red-500">{galleryError}</div>}
+
+      {/* Error state */}
+      {error && !loading && (
+        <div className="flex flex-col items-center justify-center text-center p-12 bg-slate-900/30 border border-slate-800/80 rounded-2xl space-y-4">
+          <AlertCircle size={40} className="text-red-500" />
+          <div className="space-y-1">
+            <h3 className="text-lg font-bold text-slate-200">Cosmic Link Disruption</h3>
+            <p className="text-slate-400 text-sm max-w-md">{error}</p>
+          </div>
+          <button
+            onClick={() => fetchApod(selectedDate)}
+            className="mt-2 bg-slate-800 hover:bg-slate-700 text-white border border-slate-700 text-xs font-bold px-4 py-2 rounded-xl transition"
+          >
+            Retry Transmit
+          </button>
+        </div>
+      )}
       
+      {/* Detail Showcase */}
       {data && !loading && !error && (
-        <div className="grid md:grid-cols-3 gap-8 mb-12">
-          <div className="md:col-span-2">
+        <div className="space-y-8 animate-fade-in">
+          {/* Main Display Frame */}
+          <div className="relative rounded-2xl overflow-hidden border border-slate-800 bg-slate-950 shadow-2xl">
             {data.media_type === 'image' ? (
               imageError ? (
-                <div className="w-full h-96 bg-gray-100 flex flex-col items-center justify-center rounded-lg shadow-lg text-gray-500 p-6 text-center">
-                  <AlertCircle className="w-12 h-12 mb-4 text-gray-400" />
-                  <p className="font-semibold text-lg">Unable to load image</p>
-                  <p className="text-sm">The image could not be retrieved at this time.</p>
+                <div className="w-full aspect-video md:h-[480px] bg-slate-900 flex flex-col items-center justify-center text-slate-500 p-6 text-center">
+                  <AlertCircle className="w-12 h-12 mb-4 text-slate-600" />
+                  <p className="font-semibold text-lg">Unable to load deep space picture</p>
+                  <p className="text-xs text-slate-400 max-w-xs mt-1">The telemetry image source could not be resolved. This is occasionally due to temporary DNS disruption at NASA servers.</p>
                 </div>
               ) : (
-                <>
+                <div className="relative group overflow-hidden max-h-[580px] flex items-center justify-center">
                   <img 
                     src={data.url} 
                     alt={data.title} 
-                    className="w-full rounded-lg shadow-lg" 
+                    className="w-full object-cover rounded-2xl" 
                     referrerPolicy="no-referrer" 
                     onError={() => setImageError(true)}
                   />
-                  <div className="mt-4 flex gap-2">
-                    <a
-                      href={data.url}
-                      download={`${data.title}.jpg`}
-                      className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700"
-                    >
-                      <Download size={18} />
-                      Download
-                    </a>
-                    <button
-                      onClick={() => handleShare(data)}
-                      className="inline-flex items-center gap-2 bg-gray-200 text-gray-800 px-4 py-2 rounded shadow hover:bg-gray-300"
-                    >
-                      <Share2 size={18} />
-                      Share
-                    </button>
-                  </div>
-                </>
+                </div>
               )
             ) : data.media_type === 'video' && !data.url.includes('youtube') ? (
-              <video src={data.url} controls preload="auto" className="w-full h-96 rounded-lg shadow-lg" />
+              <video src={data.url} controls preload="auto" className="w-full aspect-video max-h-[480px] rounded-2xl" />
             ) : (
               <iframe 
                 src={data.url.includes('youtube.com/watch?v=') ? data.url.replace('watch?v=', 'embed/') : data.url} 
                 title={data.title} 
-                className="w-full h-96 rounded-lg shadow-lg" 
+                className="w-full aspect-video max-h-[480px] rounded-2xl" 
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                 allowFullScreen
               />
             )}
-          </div>
-          <div className="md:col-span-1">
-            <h2 className="text-2xl font-bold mb-2">{data.title}</h2>
-            <p className="text-gray-600 mb-4">{formatDate(data.date)}</p>
-            <p className="text-lg leading-relaxed">{data.explanation}</p>
-          </div>
-        </div>
-      )}
 
-      <h2 className="text-2xl font-bold mb-6">Recent Images</h2>
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-6">
-        {gallery.map((item) => (
-          <div key={item.date} className="cursor-pointer group" onClick={() => setSelectedImage(item)}>
-            <div className="overflow-hidden rounded-lg shadow-md hover:shadow-xl transition-shadow duration-300">
-              <img 
-                src={item.url} 
-                alt={item.title} 
-                className="w-full h-32 object-cover transition-transform duration-300 group-hover:scale-110" 
-                referrerPolicy="no-referrer" 
-                onError={(e) => {
-                  (e.target as HTMLImageElement).src = 'https://via.placeholder.com/150?text=Image+Failed';
-                }}
-              />
-            </div>
-            <p className="text-sm font-medium mt-2 truncate group-hover:text-blue-600 transition-colors">{item.title}</p>
-            <p className="text-xs text-gray-500">{formatDate(item.date)}</p>
-          </div>
-        ))}
-      </div>
+            {/* Gradient Mask Overlay */}
+            <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-transparent to-transparent opacity-40 pointer-events-none"></div>
 
-      {selectedImage && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50" onClick={() => setSelectedImage(null)}>
-          <div className="bg-white p-4 rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto relative" onClick={(e) => e.stopPropagation()}>
-            <button onClick={() => setSelectedImage(null)} className="absolute top-2 right-2 p-2 bg-gray-200 rounded-full hover:bg-gray-300">
-              <X size={20} />
-            </button>
-            <img src={selectedImage.url} alt={selectedImage.title} className="w-full rounded-lg mb-4" referrerPolicy="no-referrer" />
-            <h3 className="text-xl font-bold mb-2">{selectedImage.title}</h3>
-            <div className="flex gap-2">
-              <a
-                href={selectedImage.url}
-                download={`${selectedImage.title}.jpg`}
-                className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700"
-              >
-                <Download size={18} />
-                Download
-              </a>
+            {/* Float Action overlays */}
+            <div className="absolute top-4 right-4 flex items-center gap-2">
+              {/* Toggle Favorite button */}
               <button
-                onClick={() => handleShare(selectedImage)}
-                className="inline-flex items-center gap-2 bg-gray-200 text-gray-800 px-4 py-2 rounded shadow hover:bg-gray-300"
+                onClick={() => onToggleFavorite(data)}
+                className={`p-3 backdrop-blur-md border rounded-full transition-all duration-300 ${isFavorite(data.date) ? 'bg-amber-600/35 border-amber-500/60 text-amber-300 hover:bg-amber-600/50' : 'bg-slate-950/75 border-slate-800 text-slate-300 hover:text-white hover:bg-slate-900'}`}
+                title={isFavorite(data.date) ? "Remove from Favorites" : "Add to Favorites"}
+              >
+                <Star size={18} className={isFavorite(data.date) ? "fill-amber-400 text-amber-400" : ""} />
+              </button>
+
+              <button
+                onClick={() => handleShare(data)}
+                className="p-3 bg-slate-950/75 backdrop-blur-md border border-slate-800 text-slate-300 hover:text-white hover:bg-slate-900 rounded-full transition"
+                title="Share picture"
               >
                 <Share2 size={18} />
-                Share
               </button>
+              
+              {data.media_type === 'image' && (
+                <a
+                  href={data.hdurl || data.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="p-3 bg-slate-950/75 backdrop-blur-md border border-slate-800 text-slate-300 hover:text-white hover:bg-slate-900 rounded-full transition"
+                  title="Download HD picture"
+                >
+                  <Download size={18} />
+                </a>
+              )}
+            </div>
+          </div>
+          
+          {/* Detailed Narrative Panel */}
+          <div className="space-y-6">
+            <div className="flex flex-col md:flex-row md:items-start justify-between gap-4 border-b border-slate-800 pb-5">
+              <div>
+                <h2 className="text-2xl md:text-3xl font-extrabold text-slate-100">{data.title}</h2>
+                <p className="text-slate-400 text-sm mt-1.5 flex items-center gap-2">
+                  <span className="font-mono">{formatDate(data.date)}</span>
+                  {data.copyright && (
+                    <>
+                      <span>•</span>
+                      <span className="italic font-sans">Photographer: {data.copyright}</span>
+                    </>
+                  )}
+                </p>
+              </div>
+            </div>
+
+            {/* Explanation card */}
+            <div className="space-y-3">
+              <h3 className="text-xs font-bold uppercase tracking-widest text-blue-400 flex items-center gap-1.5">
+                Scientific Context
+              </h3>
+              <p className="text-slate-300 text-sm md:text-base leading-relaxed font-sans bg-slate-900/20 p-5 md:p-6 rounded-2xl border border-slate-800/80 shadow-inner">
+                {data.explanation}
+              </p>
             </div>
           </div>
         </div>

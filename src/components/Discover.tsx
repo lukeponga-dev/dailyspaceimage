@@ -26,6 +26,24 @@ const formatDate = (dateString: string) => {
   return `${day}/${month}/${year}`;
 };
 
+const parseMaxDateFromMessage = (msg: string): string | null => {
+  const match = msg.match(/and\s+([A-Za-z]+)\s+(\d+),\s+(\d+)/);
+  if (match) {
+    const [_, monthStr, dayStr, yearStr] = match;
+    const months: { [key: string]: string } = {
+      Jan: '01', Feb: '02', Mar: '03', Apr: '04', May: '05', Jun: '06',
+      Jul: '07', Aug: '08', Sep: '09', Oct: '10', Nov: '11', Dec: '12'
+    };
+    const month = months[monthStr.substring(0, 3)];
+    if (month) {
+      const day = dayStr.padStart(2, '0');
+      const year = yearStr;
+      return `${year}-${month}-${day}`;
+    }
+  }
+  return null;
+};
+
 export default function Discover({ favorites, onToggleFavorite, isFavorite, onSelectImage }: DiscoverProps) {
   const [gallery, setGallery] = useState<ApodData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -39,8 +57,10 @@ export default function Discover({ favorites, onToggleFavorite, isFavorite, onSe
 
   const fetchGallery = useCallback(async () => {
     setLoading(true);
+
     try {
       let url = '';
+
       if (feedMode === 'recent') {
         const now = new Date();
         const endDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
@@ -54,7 +74,18 @@ export default function Discover({ favorites, onToggleFavorite, isFavorite, onSe
       }
 
       const res = await fetch(url);
-      if (!res.ok) throw new Error('API Response Error');
+      if (!res.ok) {
+        let errMsg = `API Response Error (HTTP Status ${res.status})`;
+        if (res.status === 400) {
+          try {
+            const errJson = await res.json();
+            if (errJson && errJson.msg) {
+              errMsg = errJson.msg;
+            }
+          } catch (_) {}
+        }
+        throw new Error(errMsg);
+      }
       const data = await res.json();
       
       // APOD returns an array for start_date/end_date and count
@@ -71,8 +102,62 @@ export default function Discover({ favorites, onToggleFavorite, isFavorite, onSe
       } else {
         setGallery(items);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Gallery fetch error:', err);
+      const errMsg = err.message || 'Failed to connect to NASA servers';
+      
+      // If we are querying recent items and encounter a future date error, try parsing max allowed date and fall back!
+      if (feedMode === 'recent' && (errMsg.toLowerCase().includes('date must be') || errMsg.toLowerCase().includes('future') || errMsg.toLowerCase().includes('400') || errMsg.toLowerCase().includes('bad request'))) {
+        const maxDateStr = parseMaxDateFromMessage(errMsg);
+        if (maxDateStr) {
+          const maxDateObj = new Date(maxDateStr + 'T00:00:00');
+          const startDateObj = new Date(maxDateObj);
+          startDateObj.setDate(startDateObj.getDate() - 30);
+          const startDate = `${startDateObj.getFullYear()}-${String(startDateObj.getMonth() + 1).padStart(2, '0')}-${String(startDateObj.getDate()).padStart(2, '0')}`;
+          const adjustedUrl = `https://api.nasa.gov/planetary/apod?api_key=${NASA_API_KEY}&start_date=${startDate}&end_date=${maxDateStr}`;
+          
+          try {
+            const retryRes = await fetch(adjustedUrl);
+            if (retryRes.ok) {
+              const retryData = await retryRes.json();
+              let items: ApodData[] = Array.isArray(retryData) ? retryData : [retryData];
+              items = items.filter((item, index, self) => 
+                item && item.date && self.findIndex(t => t.date === item.date) === index
+              );
+              setGallery(items.reverse());
+              setLoading(false);
+              return;
+            }
+          } catch (retryErr) {
+            console.error('Adjusted gallery fetch retry failed:', retryErr);
+          }
+        } else {
+          // Simple fallback: subtract 1 day from end date and try again
+          const now = new Date();
+          now.setDate(now.getDate() - 1);
+          const endDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+          const startDateObj = new Date(now);
+          startDateObj.setDate(startDateObj.getDate() - 30);
+          const startDate = `${startDateObj.getFullYear()}-${String(startDateObj.getMonth() + 1).padStart(2, '0')}-${String(startDateObj.getDate()).padStart(2, '0')}`;
+          const adjustedUrl = `https://api.nasa.gov/planetary/apod?api_key=${NASA_API_KEY}&start_date=${startDate}&end_date=${endDate}`;
+          
+          try {
+            const retryRes = await fetch(adjustedUrl);
+            if (retryRes.ok) {
+              const retryData = await retryRes.json();
+              let items: ApodData[] = Array.isArray(retryData) ? retryData : [retryData];
+              items = items.filter((item, index, self) => 
+                item && item.date && self.findIndex(t => t.date === item.date) === index
+              );
+              setGallery(items.reverse());
+              setLoading(false);
+              return;
+            }
+          } catch (retryErr) {
+            console.error('1-day gallery fetch retry failed:', retryErr);
+          }
+        }
+      }
     } finally {
       setLoading(false);
     }

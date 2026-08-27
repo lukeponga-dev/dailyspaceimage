@@ -57,6 +57,24 @@ const getRandomDate = () => {
   return `${year}-${month}-${day}`;
 };
 
+const parseMaxDateFromMessage = (msg: string): string | null => {
+  const match = msg.match(/and\s+([A-Za-z]+)\s+(\d+),\s+(\d+)/);
+  if (match) {
+    const [_, monthStr, dayStr, yearStr] = match;
+    const months: { [key: string]: string } = {
+      Jan: '01', Feb: '02', Mar: '03', Apr: '04', May: '05', Jun: '06',
+      Jul: '07', Aug: '08', Sep: '09', Oct: '10', Nov: '11', Dec: '12'
+    };
+    const month = months[monthStr.substring(0, 3)];
+    if (month) {
+      const day = dayStr.padStart(2, '0');
+      const year = yearStr;
+      return `${year}-${month}-${day}`;
+    }
+  }
+  return null;
+};
+
 export default function NasaApod({ selectedDate, onDateChange, onToggleFavorite, isFavorite }: NasaApodProps) {
   const [data, setData] = useState<ApodData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -72,9 +90,31 @@ export default function NasaApod({ selectedDate, onDateChange, onToggleFavorite,
         const id = setTimeout(() => controller.abort(), timeout);
         const response = await fetch(url, { signal: controller.signal });
         clearTimeout(id);
+        
         if (response.ok) return response;
+        
+        // If it's a client-side error (4xx) we don't retry, but rather parse the message body
+        if (response.status >= 400 && response.status < 500) {
+          let errorMsg = `HTTP error! status: ${response.status}`;
+          try {
+            const errData = await response.json();
+            if (errData && errData.msg) {
+              errorMsg = errData.msg;
+            } else if (errData && errData.error && errData.error.message) {
+              errorMsg = errData.error.message;
+            }
+          } catch (_) {
+            // response was not JSON or failed to parse
+          }
+          throw new Error(errorMsg);
+        }
+        
         throw new Error(`HTTP error! status: ${response.status}`);
       } catch (err) {
+        // Do not retry 4xx errors, fail immediately
+        if (err instanceof Error && !err.message.includes('HTTP error! status: 5') && !err.message.includes('Failed to fetch') && !err.message.includes('aborted')) {
+          throw err;
+        }
         if (i === retries - 1) throw err;
         await new Promise(resolve => setTimeout(resolve, 1000));
       }
@@ -83,31 +123,50 @@ export default function NasaApod({ selectedDate, onDateChange, onToggleFavorite,
   };
 
   const fetchApod = useCallback(async (date: string) => {
+    // Check cache first
     if (cache.current.has(date)) {
       setData(cache.current.get(date)!);
       setLoading(false);
       return;
     }
+
     setLoading(true);
     setError(null);
     setImageError(false);
+
     try {
       const res = await fetchWithRetry(`https://api.nasa.gov/planetary/apod?api_key=${NASA_API_KEY}&date=${date}`);
       const responseData = await res.json();
       
       if (responseData.code && responseData.code !== 200) {
-        throw new Error(responseData.msg || 'Error fetching astronomy picture of the day');
+        throw new Error(responseData.msg || `Error fetching astronomy picture of the day [Code ${responseData.code}]`);
       }
 
       cache.current.set(date, responseData);
       setData(responseData);
     } catch (err: any) {
       console.error('Fetch error:', err);
-      setError(err.message || 'Failed to connect to NASA servers');
+      const errMsg = err.message || 'Failed to connect to NASA servers';
+      
+      // Attempt to parse maximum available date from NASA error message
+      const maxDate = parseMaxDateFromMessage(errMsg);
+      if (maxDate && maxDate !== date) {
+        onDateChange(maxDate);
+        return;
+      }
+
+      // Fallback: If no max date parsed but the error is related to date limit/future, and we requested today's local date, try yesterday
+      if (date === getLocalDate() && (errMsg.toLowerCase().includes('date must be') || errMsg.toLowerCase().includes('future') || errMsg.toLowerCase().includes('400') || errMsg.toLowerCase().includes('bad request'))) {
+        const yesterday = addDays(date, -1);
+        onDateChange(yesterday);
+        return;
+      }
+      
+      setError(errMsg);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [onDateChange]);
 
   useEffect(() => {
     fetchApod(selectedDate);
@@ -191,7 +250,7 @@ export default function NasaApod({ selectedDate, onDateChange, onToggleFavorite,
               max={todayStr}
               value={selectedDate}
               onChange={(e) => onDateChange(e.target.value)}
-              className="w-full sm:w-48 bg-slate-955/90 text-white border border-slate-800 p-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/40 text-center font-mono text-sm cursor-pointer"
+              className="w-full sm:w-48 bg-slate-950/90 text-white border border-slate-800 p-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/40 text-center font-mono text-sm cursor-pointer"
             />
           </div>
 
@@ -209,7 +268,7 @@ export default function NasaApod({ selectedDate, onDateChange, onToggleFavorite,
         <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
           <button
             onClick={handleRandomDate}
-            className="flex-grow sm:flex-grow-0 inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-955/80 hover:bg-slate-800/65 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white rounded-xl text-xs font-semibold uppercase tracking-wider transition"
+            className="flex-grow sm:flex-grow-0 inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-950/80 hover:bg-slate-800/65 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white rounded-xl text-xs font-semibold uppercase tracking-wider transition"
             title="Random archive date"
           >
             <Shuffle size={14} />
